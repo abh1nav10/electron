@@ -11,6 +11,7 @@ mod loom_tests {
             let new = Arc::new(LinkedList::new());
             let cloned1 = Arc::clone(&new);
             let cloned2 = Arc::clone(&new);
+            new.insert_from_head(5);
             let t1 = loom::thread::spawn(move || {
                 cloned1.insert_from_head(2);
             });

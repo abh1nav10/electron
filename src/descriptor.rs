@@ -169,6 +169,7 @@ impl<T> LinkedList<T> {
                             )
                             .is_ok()
                         {
+                            self.loop_insert(new_descriptor_guard.data);
                             let mut swapholder = HazPtrHolder::default();
                             let mut wrapper = unsafe {
                                 swapholder.swap(
@@ -199,7 +200,6 @@ impl<T> LinkedList<T> {
                                     wrapper.retire();
                                 }
                             }
-                            self.loop_insert(new_descriptor_guard.data);
                             // we now check whether the operation was actually successful
                             if unsafe {
                                 (*new_descriptor_guard.data).success.load(Ordering::SeqCst)
@@ -354,7 +354,7 @@ impl<T> LinkedList<T> {
                             Ordering::SeqCst,
                         );
                         pending.store(false, Ordering::SeqCst);
-                        break;
+                        return;
                     }
                     0 => {
                         let now = head_ptr.load(Ordering::SeqCst);
@@ -367,7 +367,7 @@ impl<T> LinkedList<T> {
                                 .success
                                 .store(true, Ordering::SeqCst);
                         }
-                        status.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst);
+                        status.store(1, Ordering::SeqCst);
                         continue;
                     }
                     _ => unreachable!(),
@@ -488,6 +488,7 @@ impl<T> LinkedList<T> {
                             .is_ok()
                         {
                             //println!("After descriptor swap");
+                            self.loop_delete(new);
                             let mut swap_holder = HazPtrHolder::default();
                             let mut wrapper = unsafe {
                                 swap_holder.swap(
@@ -511,7 +512,6 @@ impl<T> LinkedList<T> {
                                     wrapper.retire();
                                 }
                             }
-                            self.loop_delete(new);
                             if unsafe { (*new_guard.data).success.load(Ordering::SeqCst) } {
                                 if unsafe { (*new_guard.data).init_stored.load(Ordering::SeqCst) } {
                                     let init_ptr = unsafe {
@@ -617,9 +617,11 @@ impl<T> LinkedList<T> {
         let pending = unsafe { &(*actual_descriptor_guard.data).pending };
         let status = unsafe { &(*actual_descriptor_guard.data).status };
         loop {
+            println!("looping delete");
             match pending.load(Ordering::SeqCst) {
                 true => match status.load(Ordering::SeqCst) {
                     2 => {
+                        println!("reached 2");
                         unsafe {
                             (*actual_descriptor_guard.data)
                                 .success
@@ -631,7 +633,6 @@ impl<T> LinkedList<T> {
                             Ordering::SeqCst,
                             Ordering::SeqCst,
                         );
-                        //println!("Once every delete");
                         pending.store(false, Ordering::SeqCst);
                         if unsafe {
                             (*actual_tail_ptr_guard)
@@ -654,7 +655,7 @@ impl<T> LinkedList<T> {
                         return;
                     }
                     1 => {
-                        //println!("a");
+                        //println!("reached 1");
                         let taken_value =
                             unsafe { std::ptr::read(&(*actual_tail_ptr_guard.data).value) };
                         let mut init = MaybeUninit::uninit();
@@ -668,10 +669,11 @@ impl<T> LinkedList<T> {
                                 .init_stored
                                 .store(true, Ordering::SeqCst);
                         }
-                        status.compare_exchange(1, 2, Ordering::SeqCst, Ordering::SeqCst);
+                        status.store(2, Ordering::SeqCst);
                         continue;
                     }
                     0 => {
+                        //println!("reached 0");
                         let current = tail_ptr.load(Ordering::SeqCst);
                         // the idea is to make the swapping of the tail_ptr the last step
                         // therefore... helper threads will help when required and will just
@@ -680,7 +682,7 @@ impl<T> LinkedList<T> {
                         //println!("0");
                         if current != actual_tail_ptr_guard.data {
                             pending.store(false, Ordering::SeqCst);
-                            break;
+                            return;
                         }
                         if prev.is_null() {
                             head_ptr.compare_exchange(

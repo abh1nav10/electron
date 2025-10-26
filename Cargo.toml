@@ -10,7 +10,7 @@ authors = ["Abhinav"]
 criterion = "0.7.0"
 
 [target.'cfg(loom)'.dependencies]
-loom = "0.7"
+loom = {version = "0.7", features = ["checkpoint"]}
 
 [[bench]]
 name = "benchmark"

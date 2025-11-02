@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use ruby::Stack;
+use fastack::Stack;
 use std::collections::LinkedList as StdLinkedList;
 use std::sync::Mutex;
 
@@ -19,7 +19,7 @@ fn std_mutex_list(threads: usize) {
     });
 }
 
-fn ruby(threads: usize) {
+fn fastack(threads: usize) {
     let new = &Stack::new();
     std::thread::scope(|s| {
         for i in 0..threads {
@@ -35,24 +35,19 @@ fn ruby(threads: usize) {
     });
 }
 
-fn benchmark1(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Bravo");
-    group.bench_function("Std", |b| b.iter(|| std_mutex_list(10)));
-    group.bench_function("Ruby", |b| b.iter(|| ruby(10)));
-    group.finish();
+macro_rules! generate_benchmark {
+    ($name: ident, $number: expr) => {
+        fn $name(c: &mut Criterion) {
+            let mut group = c.benchmark_group("Bravo");
+            group.bench_function("Std", |b| b.iter(|| std_mutex_list($number)));
+            group.bench_function("Fastack", |b| b.iter(|| fastack($number)));
+        }
+    };
 }
-fn benchmark2(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Bravo");
-    group.bench_function("Std", |b| b.iter(|| std_mutex_list(50)));
-    group.bench_function("Ruby", |b| b.iter(|| ruby(50)));
-    group.finish();
-}
-fn benchmark3(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Bravo");
-    group.bench_function("Std", |b| b.iter(|| std_mutex_list(150)));
-    group.bench_function("Ruby", |b| b.iter(|| ruby(150)));
-    group.finish();
-}
+
+generate_benchmark!(benchmark1, 10);
+generate_benchmark!(benchmark2, 50);
+generate_benchmark!(benchmark3, 150);
 
 criterion_group! {name = benchmarks; config = Criterion::default(); targets = benchmark1, benchmark2, benchmark3}
 criterion_main!(benchmarks);

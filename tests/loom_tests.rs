@@ -4,19 +4,19 @@
 #[cfg(loom)]
 mod loom_tests {
     use loom::sync::Arc;
-    use ruby::list::LinkedList;
+    use ruby::list::Stack;
     #[test]
     fn concurrency_test() {
         loom::model(|| {
-            let new = Arc::new(LinkedList::new());
+            let new = Arc::new(Stack::new());
             let cloned1 = Arc::clone(&new);
             let cloned2 = Arc::clone(&new);
-            new.insert_from_head(5);
+            let _ = new.insert(5);
             let t1 = loom::thread::spawn(move || {
-                cloned1.insert_from_head(7);
+                let _ = cloned1.insert(7);
             });
             let t2 = loom::thread::spawn(move || {
-                let _ = cloned2.delete_from_tail();
+                let _ = cloned2.delete();
             });
             t1.join().unwrap();
             t2.join().unwrap();
@@ -28,7 +28,7 @@ mod loom_tests {
 #[cfg(loom)]
 mod hazard_test {
     use loom::sync::Arc;
-    use ruby::hazard::{DropBox, HazPtrHolder, HazPtrObject};
+    use ruby::hazard::{BoxedPointer, Doer, Holder};
     use ruby::sync::atomic::{AtomicPtr, AtomicUsize};
     use std::sync::atomic::Ordering;
     struct CountDrops(Arc<AtomicUsize>);
@@ -52,9 +52,9 @@ mod hazard_test {
             let boxed1 = Box::into_raw(Box::new(value1));
             let boxed2 = Box::into_raw(Box::new(value2));
             let atm_ptr = AtomicPtr::new(boxed1);
-            let mut holder = HazPtrHolder::default();
-            let guard = unsafe { holder.load(&atm_ptr) };
-            static DROPBOX: DropBox = DropBox::new();
+            let mut holder = Holder::default();
+            let guard = unsafe { holder.load_pointer(&atm_ptr) };
+            static DROPBOX: BoxedPointer = BoxedPointer::new();
             std::mem::drop(guard);
             if let Some(mut wrapper) = unsafe { holder.swap(&atm_ptr, boxed2, &DROPBOX) } {
                 wrapper.retire();

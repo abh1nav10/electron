@@ -1,97 +1,117 @@
-#![allow(dead_code)]
-use crate::Descriptor;
-use crate::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
+use crate::sync::atomic::AtomicPtr;
+use crate::{BoxedPointer, Doer, Holder};
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering;
 
+static DROPBOX: BoxedPointer = BoxedPointer::new();
+
 pub(crate) struct Node<T> {
     pub(crate) value: T,
-    pub(crate) prev: AtomicPtr<Node<T>>,
-    pub(crate) retired: AtomicBool,
-    pub(crate) value_moved: AtomicBool,
+    pub(crate) next: AtomicPtr<Node<T>>,
 }
 
-impl<T> Node<T> {
-    fn new(value: T) -> Self {
+impl<T: Clone> Node<T> {
+    pub(crate) fn new(value: T) -> Self {
         Self {
             value,
-            prev: AtomicPtr::new(std::ptr::null_mut()),
-            // this field is to prevent that retirement of the same node more than once
-            retired: AtomicBool::new(false),
-            value_moved: AtomicBool::new(false),
+            next: AtomicPtr::new(std::ptr::null_mut()),
         }
     }
 }
 
-pub struct LinkedList<T> {
-    length: AtomicUsize,
+pub struct Stack<T> {
     pub(crate) head: AtomicPtr<Node<T>>,
-    pub(crate) tail: AtomicPtr<Node<T>>,
-    pub(crate) descriptor: AtomicPtr<Descriptor<T>>,
     marker: PhantomData<Node<T>>,
 }
 
-unsafe impl<T> Send for LinkedList<T> where T: Send {}
-unsafe impl<T> Sync for LinkedList<T> where T: Sync {}
+unsafe impl<T> Send for Stack<T> where T: Send {}
+unsafe impl<T> Sync for Stack<T> where T: Sync {}
 
-impl<T> LinkedList<T> {
+impl<T> Drop for Stack<T> {
+    fn drop(&mut self) {
+        let mut current = self.head.load(Ordering::SeqCst);
+        while !current.is_null() {
+            let next = unsafe { (*current).next.load(Ordering::SeqCst) };
+            let owned = unsafe { Box::from_raw(current) };
+            std::mem::drop(owned);
+            current = next;
+        }
+        Holder::try_reclaim();
+    }
+}
+
+impl<T: Clone> Stack<T> {
     pub fn new() -> Self {
         Self {
-            length: AtomicUsize::new(0),
             head: AtomicPtr::new(std::ptr::null_mut()),
-            tail: AtomicPtr::new(std::ptr::null_mut()),
-            descriptor: AtomicPtr::new(std::ptr::null_mut()),
             marker: PhantomData,
         }
     }
 
-    pub fn insert_from_head<'a>(&self, value: T) {
-        let boxed = Box::into_raw(Box::new(Node::new(value)));
+    pub fn insert<'a>(&self, value: T) -> Result<&str, &str> {
+        let mut attempts = 0;
         loop {
-            let current = self.head.load(Ordering::SeqCst);
-            if current.is_null() {
-                match self.head.compare_exchange(
-                    std::ptr::null_mut(),
-                    boxed,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                ) {
-                    Ok(_) => {
-                        // We dont CAS the tail because we dont have a method to insert from the
-                        // tail side.Therefore any possibility of some other thread inserting a
-                        // tail after we swap the head but before we manage to store the tail does
-                        // not  exist.
-                        // Updating the tail is the only reason we have this loop in the first
-                        // place otherwise the insert method has got all the capability to handle
-                        // the case where head is an atomic pointer storing a null pointer.
-                        self.tail.store(boxed, Ordering::SeqCst);
-                        println!("Reached first insert");
-                        self.length.fetch_add(1, Ordering::SeqCst);
-                        return;
-                    }
-                    Err(_) => {
-                        continue;
-                    }
-                }
+            if attempts > 15 {
+                return Err("Insertion failed. Try again!");
+            }
+            let mut holder = Holder::default();
+            let guard = unsafe { holder.load_pointer(&self.head) };
+            let current_head = if let Some(ref guard) = guard {
+                guard.data
             } else {
-                self.insert(boxed);
-                println!("Reached insert");
-                self.length.fetch_add(1, Ordering::SeqCst);
-                return;
+                std::ptr::null_mut()
+            };
+            let new_node = Node::new(value.clone());
+            new_node.next.store(current_head, Ordering::SeqCst);
+            let boxed = Box::into_raw(Box::new(new_node));
+            if self
+                .head
+                .compare_exchange(current_head, boxed, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                Holder::try_reclaim();
+                return Ok("Insertion successful!");
+            } else {
+                let owned = unsafe { Box::from_raw(boxed) };
+                std::mem::drop(owned);
+                attempts += 1;
             }
         }
     }
 
-    pub fn delete_from_tail<'a>(&self) -> Option<T> {
-        let ret = self.delete();
-        if ret.is_some() {
-            println!("Reached decrement subcount");
-            self.length.fetch_sub(1, Ordering::SeqCst);
+    pub fn delete<'a>(&self) -> Result<T, &str> {
+        let mut attempts = 0;
+        loop {
+            if attempts > 15 {
+                return Err("Deletion failed. Try again!");
+            }
+            let mut holder = Holder::default();
+            let guard = unsafe { holder.load_pointer(&self.head) };
+            let current_head = if let Some(ref guard) = guard {
+                guard.data
+            } else {
+                std::ptr::null_mut()
+            };
+            if current_head.is_null() {
+                Holder::try_reclaim();
+                return Err("There are no elements in the list");
+            }
+            let next_head = unsafe { (*current_head).next.load(Ordering::SeqCst) };
+            if self
+                .head
+                .compare_exchange(current_head, next_head, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                let value = unsafe { std::ptr::read(&(*current_head).value) };
+                let mut holder = Holder::default();
+                let wrapper =
+                    unsafe { holder.get_wrapper(&AtomicPtr::new(current_head), &DROPBOX) };
+                wrapper.expect("Has to be there").retire();
+                Holder::try_reclaim();
+                return Ok(value);
+            } else {
+                attempts += 1;
+            }
         }
-        return ret;
-    }
-
-    pub fn length(&self) -> usize {
-        self.length.load(Ordering::Relaxed)
     }
 }

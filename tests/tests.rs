@@ -1,27 +1,22 @@
 #[cfg(test)]
 mod queue_test {
-    use ruby::list::LinkedList;
-    use std::time::Instant;
+    use ruby::list::Stack;
     #[test]
     fn test_one() {
-        let current = Instant::now();
-        let new = &LinkedList::new();
+        let new = &Stack::new();
         std::thread::scope(|s| {
-            for i in 0..10 {
+            for i in 0..500 {
                 s.spawn(move || {
-                    new.insert_from_head(i);
+                    let _ = new.insert(i);
                 });
             }
         });
         std::thread::scope(|s| {
-            for _ in 0..10 {
+            for _ in 0..500 {
                 s.spawn(move || {
-                    let _ = new.delete_from_tail();
+                    let _ = new.delete();
                 });
             }
         });
-        assert_eq!(0 as usize, new.length());
-        let time_taken = current.elapsed();
-        println!("{:?}", time_taken.as_micros());
     }
 }

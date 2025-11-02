@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod queue_test {
-    use ruby::list::Stack;
+    use fastack::list::Stack;
     #[test]
     fn test_one() {
         let new = &Stack::new();

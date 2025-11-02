@@ -3,7 +3,7 @@
 #[cfg(test)]
 #[cfg(loom)]
 mod loom_tests {
-    use fastack::list::Stack;
+    use fastack::Stack;
     use loom::sync::Arc;
     #[test]
     fn concurrency_test() {
@@ -27,8 +27,8 @@ mod loom_tests {
 #[cfg(test)]
 #[cfg(loom)]
 mod hazard_test {
-    use fastack::hazard::{BoxedPointer, Doer, Holder};
     use fastack::sync::atomic::{AtomicPtr, AtomicUsize};
+    use fastack::{BoxedPointer, Doer, Holder};
     use loom::sync::Arc;
     use std::sync::atomic::Ordering;
     struct CountDrops(Arc<AtomicUsize>);

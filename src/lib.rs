@@ -1,6 +1,6 @@
 pub mod hazard;
-pub mod list;
+pub mod stack;
 pub mod sync;
 
 pub use crate::hazard::{BoxedPointer, Doer, Holder};
-pub use crate::list::Stack;
+pub use crate::stack::Stack;

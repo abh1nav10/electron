@@ -121,8 +121,7 @@ impl Holder {
         ptr: *mut T,
         deleter: &'static dyn Deleter,
     ) -> Option<DoerWrapper<'_, T>> {
-        let current = atomic.load(Ordering::Acquire);
-        atomic.store(ptr, Ordering::Release);
+        let current = atomic.swap(ptr, Ordering::AcqRel);
         if current.is_null() {
             return None;
         } else {
@@ -144,8 +143,7 @@ impl Holder {
         atomic: &'_ AtomicPtr<T>,
         deleter: &'static dyn Deleter,
     ) -> Option<DoerWrapper<'_, T>> {
-        let current = atomic.load(Ordering::Acquire);
-        atomic.store(std::ptr::null_mut(), Ordering::Release);
+        let current = atomic.swap(std::ptr::null_mut(), Ordering::AcqRel);
         if current.is_null() {
             return None;
         } else {
@@ -276,7 +274,7 @@ impl GlobalDomain {
                 next: AtomicPtr::new(std::ptr::null_mut()),
                 flag: AtomicBool::new(false),
             };
-            new.next.store(now, Ordering::SeqCst);
+            new.next.store(now, Ordering::Release);
             let boxed = Box::into_raw(Box::new(new));
             if self
                 .list

@@ -36,7 +36,6 @@ impl<T> Drop for Stack<T> {
             std::mem::drop(owned);
             current = next;
         }
-        Holder::try_reclaim();
     }
 }
 
@@ -69,7 +68,6 @@ impl<T: Clone> Stack<T> {
                 .compare_exchange(current_head, boxed, Ordering::AcqRel, Ordering::Relaxed)
                 .is_ok()
             {
-                Holder::try_reclaim();
                 return Ok("Insertion successful!");
             } else {
                 let owned = unsafe { Box::from_raw(boxed) };
@@ -106,7 +104,6 @@ impl<T: Clone> Stack<T> {
                 let wrapper =
                     unsafe { holder.get_wrapper(&AtomicPtr::new(current_head), &DROPBOX) };
                 wrapper.expect("Has to be there").retire();
-                Holder::try_reclaim();
                 return Ok(value);
             } else {
                 attempts += 1;

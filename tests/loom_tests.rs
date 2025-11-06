@@ -2,11 +2,11 @@
 
 #[cfg(test)]
 #[cfg(loom)]
-mod loom_tests {
-    use fastack::Stack;
+mod stack_test {
+    use electron::Stack;
     use loom::sync::Arc;
     #[test]
-    fn concurrency_test() {
+    fn test_stack() {
         loom::model(|| {
             let new = Arc::new(Stack::new());
             let cloned1 = Arc::clone(&new);
@@ -26,9 +26,33 @@ mod loom_tests {
 
 #[cfg(test)]
 #[cfg(loom)]
+mod queue_test {
+    use electron::Queue;
+    use loom::sync::Arc;
+    #[test]
+    fn test_queue() {
+        loom::model(|| {
+            let new = Arc::new(Queue::new());
+            let cloned1 = Arc::clone(&new);
+            let cloned2 = Arc::clone(&new);
+            let _ = new.enqueue(5);
+            let t1 = loom::thread::spawn(move || {
+                let _ = cloned1.enqueue(7);
+            });
+            let t2 = loom::thread::spawn(move || {
+                let _ = cloned2.dequeue();
+            });
+            t1.join().unwrap();
+            t2.join().unwrap();
+        });
+    }
+}
+
+#[cfg(test)]
+#[cfg(loom)]
 mod hazard_test {
-    use fastack::sync::atomic::{AtomicPtr, AtomicUsize};
-    use fastack::{BoxedPointer, Doer, Holder};
+    use electron::sync::atomic::{AtomicPtr, AtomicUsize};
+    use electron::{BoxedPointer, Doer, Holder};
     use loom::sync::Arc;
     use std::sync::atomic::Ordering;
     struct CountDrops(Arc<AtomicUsize>);

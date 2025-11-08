@@ -30,7 +30,7 @@ mod tests {
         std::thread::scope(|s| {
             for i in 0..20 {
                 s.spawn(move || {
-                    if i & 2 == 0 {
+                    if i % 2 == 0 {
                         queue.enqueue(i);
                     } else {
                         let ret = queue.dequeue();

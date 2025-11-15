@@ -34,12 +34,16 @@ This entire operation is not atomic and exposes a tiny window where things could
 happens at the same address. The compare_and_exchange will still succeed but the structure of our data structure may get corrupted. 
 
 *--Hazard Pointers as the solution for ABA--*
+
 This problem is also solved by hazard pointers as in instead of directly loading the atomic pointer we load it into a hazard pointer. This will ensure that even if the atomic pointer gets swapped in between the load and the compare_and_exchange the memory that the pointer that we loaded was pointing to will not get deallocated as hazard pointer will prevent that from happening and thus no new allocation can happen at that same spot therefore preventing the ABA problem. The worst that could now happen for us is that our compare_and_exchange will fail but it will never lead to the data structure getting corrupted.
 
 *--Testing--*
 
 The implementation has been tested with loom which ensures that it is correct under all possible relevant thread interleavings. Further the data structures have also been benchmarked against their locking 
 counterparts using std::sync::Mutex. 
+
+*--Usage--*
+The usage is fairly straightforward. It just involves wrapping the stack or the queue in an Arc and then passing it to other spawned threads. That ensures that when the drop implementation is run no other thread is enqueuing or dequeuing.
 
 *--Vision--*
 
@@ -48,3 +52,4 @@ multiple threads try to update the same head pointer thus leading to severe traf
 problem is solved is through ensuring proper alignment but since the a single location is getting contented it doesnt help. This could have helped if two locations being modified concurrently rest on the same
 cache line. The contention could be reduced through a strategy more commonly used in lock based data structures known as exponential backoff. 
 I will implement optimal solutions for these problems in the coming days.
+

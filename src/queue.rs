@@ -44,7 +44,7 @@ impl<T> Drop for Queue<T> {
     }
 }
 
-impl<T: std::fmt::Debug> Queue<T> {
+impl<T> Queue<T> {
     pub fn new() -> Self {
         let sentinel_node = Box::into_raw(Box::new(Node::new()));
         Self {

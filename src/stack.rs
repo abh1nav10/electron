@@ -25,7 +25,7 @@ pub struct Stack<T> {
 }
 
 unsafe impl<T> Send for Stack<T> where T: Send {}
-unsafe impl<T> Sync for Stack<T> where T: Sync {}
+unsafe impl<T> Sync for Stack<T> where T: Send {}
 
 impl<T> Drop for Stack<T> {
     fn drop(&mut self) {
@@ -39,6 +39,12 @@ impl<T> Drop for Stack<T> {
     }
 }
 
+impl<T: Clone> Default for Stack<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: Clone> Stack<T> {
     pub fn new() -> Self {
         Self {
@@ -47,7 +53,7 @@ impl<T: Clone> Stack<T> {
         }
     }
 
-    pub fn insert<'a>(&self, value: T) -> Result<&str, &str> {
+    pub fn insert(&self, value: T) -> Result<&str, &str> {
         let mut attempts = 0;
         loop {
             if attempts > 15 {
@@ -77,7 +83,7 @@ impl<T: Clone> Stack<T> {
         }
     }
 
-    pub fn delete<'a>(&self) -> Result<T, &str> {
+    pub fn delete(&self) -> Result<T, &str> {
         let mut attempts = 0;
         loop {
             if attempts > 15 {

@@ -39,12 +39,22 @@ pub struct Guard<'a, T> {
     _marker: PhantomData<&'a T>,
 }
 
+/// SAFETY:
+///    The caller must make sure that the reference is not used
+///    after the underlying thing has been deallocated as the
+///    lifetime of the reference given out in this case is
+///    unbounded.
 impl<T> AsRef<T> for Guard<'_, T> {
     fn as_ref(&self) -> &T {
-        &(*self)
+        unsafe { &(*self.data) }
     }
 }
 
+/// SAFETY:
+///    The caller must make sure that the reference is not used
+///    after the underlying thing has been deallocated as the
+///    lifetime of the reference given out in this case is
+///    unbounded.
 impl<T> Deref for Guard<'_, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
@@ -52,11 +62,13 @@ impl<T> Deref for Guard<'_, T> {
     }
 }
 
-///SAFETY:
+/// SAFETY:
 ///  This method can cause safety issues so it must be handled with care.
 ///  If two threads deref_mut the guard to the same underlying T we will
 ///  then have two mutable pointers to the same thing. If they are used to
 ///  read or write at the same time, we will run into undefined behaviour.
+///  Further the lifetime of the mutable reference given out is unbounded.
+///  So it must be handled with care.
 impl<T> DerefMut for Guard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut (*self.data) }
@@ -91,7 +103,7 @@ impl Holder {
             hazptr.protect(ptr1 as *mut ());
             let ptr2 = ptr.load(Ordering::Acquire);
             if ptr1 == ptr2 {
-                if let Some(_) = NonNull::new(ptr1) {
+                if NonNull::new(ptr1).is_some() {
                     let data = ptr1;
                     break Some(Guard {
                         hazptr: &hazptr,

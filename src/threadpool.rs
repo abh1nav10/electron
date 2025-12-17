@@ -1,9 +1,10 @@
 use crate::Queue;
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 
-type Task = Box<dyn FnOnce() + Send + Sync>;
+type Task = Box<dyn FnOnce() + Send + 'static>;
 
 pub struct ThreadPool {
     threads: Vec<JoinHandle<()>>,
@@ -16,11 +17,11 @@ impl Drop for ThreadPool {
         self.execution.store(false, Ordering::Relaxed);
         let mut counter = 0;
         for thread in self.threads.drain(..) {
-            if let Err(_) = thread.join() {
+            if thread.join().is_err() {
                 counter += 1;
             }
         }
-        println!("{} threads panicked while joining!", counter);
+        eprintln!("{} threads panicked while joining!", counter);
     }
 }
 
@@ -35,16 +36,24 @@ impl ThreadPool {
 
     pub fn spawn(&mut self) {
         for _ in 0..self.threads.capacity() {
-            let queue: Arc<Queue<Task>> = Arc::from(self.tasks.clone());
-            let execution: Arc<AtomicBool> = Arc::from(self.execution.clone());
+            let queue: Arc<Queue<Task>> = Arc::clone(&self.tasks);
+            let execution: Arc<AtomicBool> = Arc::clone(&self.execution);
             let thread = thread::spawn(move || {
                 loop {
                     if !execution.load(Ordering::Relaxed) {
+                        while let Ok(func) = queue.dequeue() {
+                            // Using AssertUnwindSafe here is fine in order to make the catch_unwind
+                            // succeed because we are never operating on the state of the underlying
+                            // things after the error is caught.
+                            let _ = panic::catch_unwind(AssertUnwindSafe(func));
+                        }
                         break;
                     }
-                    let res = queue.dequeue();
-                    if let Ok(func) = res {
-                        let _ = std::panic::catch_unwind(|| func());
+                    if let Ok(func) = queue.dequeue() {
+                        // Using AssertUnwindSafe here is fine in order to make the catch_unwind
+                        // succeed because we are never operating on the state of the underlying
+                        // things after the error is caught.
+                        let _ = panic::catch_unwind(AssertUnwindSafe(func));
                     } else {
                         thread::yield_now();
                     }
@@ -56,7 +65,7 @@ impl ThreadPool {
 
     pub fn execute_task<T>(&self, task: T)
     where
-        T: FnOnce() + Send + Sync + 'static,
+        T: FnOnce() + Send + 'static,
     {
         let boxed = Box::new(task);
         self.tasks.enqueue(boxed);

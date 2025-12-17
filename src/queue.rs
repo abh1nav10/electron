@@ -32,6 +32,9 @@ pub struct Queue<T> {
     marker: PhantomData<Node<T>>,
 }
 
+unsafe impl<T> Send for Queue<T> where T: Send {}
+unsafe impl<T> Sync for Queue<T> where T: Send {}
+
 impl<T> Drop for Queue<T> {
     fn drop(&mut self) {
         let mut current = self.head.load(Ordering::Acquire);
@@ -41,6 +44,12 @@ impl<T> Drop for Queue<T> {
             std::mem::drop(owned);
             current = new;
         }
+    }
+}
+
+impl<T> Default for Queue<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

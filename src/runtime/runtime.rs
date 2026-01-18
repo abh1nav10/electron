@@ -53,7 +53,7 @@ impl Runtime {
         RuntimeBuilder
     }
 
-    fn spawn(self) -> RuntimeHandle {
+    fn start(self) -> RuntimeHandle {
         let mut low_handles = Vec::with_capacity(self.low_threads);
         let mut high_handles = Vec::with_capacity(self.high_threads);
         let flag = Arc::new(AtomicBool::new(true));
@@ -182,6 +182,14 @@ impl Drop for RuntimeHandle {
     fn drop(&mut self) {
         if self.flag.load(Ordering::Relaxed) {
             self.flag.store(false, Ordering::Relaxed);
+            self.high_handles.drain(..).map(|t| {
+                t.join()
+                    .expect("One of the high_priority threads failed to exit cleanly");
+            });
+            self.low_handles.drain(..).map(|t| {
+                t.join()
+                    .expect("One of the low_priority threads failed to exit cleanly");
+            });
         }
     }
 }

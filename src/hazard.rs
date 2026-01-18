@@ -267,7 +267,7 @@ pub struct GlobalDomain {
 
 impl GlobalDomain {
     fn acquire(&self) -> &'static Hazard {
-        let mut current = (&self.list.head).load(Ordering::Acquire);
+        let mut current = self.list.head.load(Ordering::Acquire);
         while !current.is_null() {
             if unsafe { &(*current).flag }
                 .compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
@@ -275,7 +275,7 @@ impl GlobalDomain {
             {
                 return unsafe { &(*current) };
             } else {
-                current = unsafe { (&(*current).next).load(Ordering::Acquire) };
+                current = unsafe { &(*current).next }.load(Ordering::Acquire);
             }
         }
 
@@ -328,9 +328,9 @@ pub trait Deleter {
 
 /// SAFETY:
 ///   1. The user would have to pass an instance of one of the two zero sized types defined below:
-///     DropBox and DropPointer on the basis of how the actual raw pointer to the underlying type
-///     was created. This is necessary because using the drop_in_place() method on every pointer will
-///     not dealloate the instance of the box for all those pointers created using Box::into_raw().
+///      DropBox and DropPointer on the basis of how the actual raw pointer to the underlying type
+///      was created. This is necessary because using the drop_in_place() method on every pointer will
+///      not dealloate the instance of the box for all those pointers created using Box::into_raw().
 ///   2. The user must create the instance using static as the trait object must have a static
 ///      lifetime because we never know when the delete method on that deleter will be called.
 ///      Using static does not come with any memory overhead as the underlying type would be a zero
@@ -375,45 +375,36 @@ impl RetiredList {
     ///    The user must make sure that the reclaim method is not called on the list of retired
     ///    pointers contaning two similar pointers as this will lead to the same pointers being
     ///    dereferenced leading to undefined behaviour.
-    unsafe fn reclaim<'a>(&self, domain: &'a HazardList) {
+    unsafe fn reclaim(&self, domain: &HazardList) {
         let mut set = HashSet::new();
-        let mut swapped = (self.head).swap(std::ptr::null_mut(), Ordering::AcqRel);
-        let mut current = (&(domain.head)).load(Ordering::Acquire);
+        let mut current = domain.head.load(Ordering::Acquire);
         while !current.is_null() {
             let a = unsafe { (*current).ptr.load(Ordering::Acquire) };
             set.insert(a);
-            current = unsafe { (&(*current).next).load(Ordering::Acquire) };
+            current = unsafe { &(*current).next }.load(Ordering::Acquire);
         }
         let mut remaining: *mut Retired = std::ptr::null_mut();
+        let mut swapped = self.head.swap(std::ptr::null_mut(), Ordering::AcqRel);
         while !swapped.is_null() {
             let check = unsafe { (*swapped).ptr };
             if !set.contains(&(check as *mut ())) {
                 let deleter = unsafe { (*swapped).deleter };
                 deleter.delete(check);
-                let to_be_dropped = swapped;
-                swapped = unsafe { ((*swapped).next).load(Ordering::Acquire) };
-                let drop = unsafe { Box::from_raw(to_be_dropped) };
+                let drop = unsafe { Box::from_raw(swapped) };
                 std::mem::drop(drop);
+                swapped = unsafe { ((*swapped).next).load(Ordering::Acquire) };
             } else {
                 let next = unsafe { ((*swapped).next).load(Ordering::Acquire) };
-                if remaining.is_null() {
-                    remaining = swapped;
-                    unsafe {
-                        (*remaining)
-                            .next
-                            .store(std::ptr::null_mut(), Ordering::Release);
-                    }
-                } else {
-                    unsafe {
-                        (*swapped).next.store(remaining, Ordering::Release);
-                    }
-                    remaining = swapped;
+                unsafe {
+                    (*swapped).next.store(remaining, Ordering::Release);
                 }
+                remaining = swapped;
                 swapped = next;
             }
         }
         // we also need to make sure that we take care of all the pointers that have been retired
         // in the meantime..therefore I came up with this solution
+        let mut safety_variable = remaining;
         loop {
             if self
                 .head
@@ -425,22 +416,16 @@ impl RetiredList {
                 )
                 .is_ok()
             {
-                return;
+                break;
             } else {
-                if remaining.is_null() {
-                    remaining = self.head.swap(std::ptr::null_mut(), Ordering::AcqRel);
-                } else {
-                    let mut safety_variable = remaining;
-                    while unsafe { !(*safety_variable).next.load(Ordering::Acquire).is_null() } {
-                        safety_variable =
-                            unsafe { (*safety_variable).next.load(Ordering::Acquire) };
-                    }
-                    let to_be_swapped = self.head.swap(std::ptr::null_mut(), Ordering::AcqRel);
-                    unsafe {
-                        (*safety_variable)
-                            .next
-                            .store(to_be_swapped, Ordering::Release);
-                    }
+                while unsafe { !(*safety_variable).next.load(Ordering::Acquire).is_null() } {
+                    safety_variable = unsafe { (*safety_variable).next.load(Ordering::Acquire) };
+                }
+                let to_be_swapped = self.head.swap(std::ptr::null_mut(), Ordering::AcqRel);
+                unsafe {
+                    (*safety_variable)
+                        .next
+                        .store(to_be_swapped, Ordering::Release);
                 }
             }
         }
